@@ -1,0 +1,19 @@
+{
+  "model_version": "rythm-tonnetz-onnx-v1",
+  "feature_schema": "tonnetz_mean_std_v1",
+  "input_name": "tonnetz",
+  "output_name": "logits",
+  "output_type": "logits",
+  "labels": [
+    "blues",
+    "classical",
+    "country",
+    "disco",
+    "hiphop",
+    "jazz",
+    "metal",
+    "pop",
+    "reggae",
+    "rock"
+  ]
+}

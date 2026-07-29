@@ -1,0 +1,60 @@
+{
+  "format_version": 1,
+  "model_version": "gtzan-logmel-cnn-v1",
+  "model_type": "logmel_cnn",
+  "onnx_file": "genre-model.onnx",
+  "onnx_sha256": "576b324af3b3f6522c610fdbf10c07826253be6aab8025bc0ceb50c3bef1720f",
+  "classes": [
+    "blues",
+    "classical",
+    "country",
+    "disco",
+    "hiphop",
+    "jazz",
+    "metal",
+    "pop",
+    "reggae",
+    "rock"
+  ],
+  "input": {
+    "name": "log_mel",
+    "dtype": "float32",
+    "layout": "batch,channel,mel_bin,time_frame",
+    "shape": [
+      "batch",
+      1,
+      64,
+      130
+    ]
+  },
+  "output": {
+    "name": "probabilities",
+    "dtype": "float32",
+    "layout": "batch,class",
+    "aggregation": "mean probabilities over all segments"
+  },
+  "preprocessing": {
+    "sample_rate": 22050,
+    "segment_seconds": 3.0,
+    "segments_per_track": 10,
+    "n_fft": 2048,
+    "hop_length": 512,
+    "n_mels": 64,
+    "fmin": 20.0,
+    "fmax": 11025.0,
+    "top_db": 80.0,
+    "power": 2.0,
+    "normalization": "clip((power_to_db(ref=max)+top_db)/top_db, 0, 1)"
+  },
+  "metrics": {
+    "best_validation_track_macro_f1": 0.7834033613445379,
+    "test_track_accuracy": 0.775,
+    "test_track_macro_f1": 0.7678903225414853
+  },
+  "verification": {
+    "onnx_checker": "passed",
+    "onnxruntime_cpu": "passed",
+    "rtol": 0.0001,
+    "atol": 0.00001
+  }
+}

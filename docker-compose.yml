@@ -1,0 +1,132 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: rythm_music
+      POSTGRES_USER: rythm_user
+      POSTGRES_PASSWORD: rythm_password
+      TZ: Asia/Tokyo
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - data_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rythm_user -d rythm_music"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - data_internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrations:
+    build: ./backend
+    environment:
+      AUDIO_DATABASE_URL: postgresql+psycopg://rythm_user:rythm_password@postgres:5432/rythm_music
+      AUDIO_REDIS_URL: redis://redis:6379/0
+      AUDIO_ENVIRONMENT: development
+    networks:
+      - data_internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: alembic -c alembic.ini upgrade head
+
+  backend:
+    build: ./backend
+    environment:
+      AUDIO_DATABASE_URL: postgresql+psycopg://rythm_user:rythm_password@postgres:5432/rythm_music
+      AUDIO_REDIS_URL: redis://redis:6379/0
+      AUDIO_ENVIRONMENT: development
+      AUDIO_FRONTEND_URL: http://localhost:8080
+      AUDIO_CORS_ORIGINS: http://localhost:5173,http://localhost:8080
+      AUDIO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      AUDIO_SESSION_IDLE_HOURS: 24
+      AUDIO_SESSION_ABSOLUTE_DAYS: 14
+      AUDIO_TURNSTILE_SECRET_KEY: ${AUDIO_TURNSTILE_SECRET_KEY:-}
+      AUDIO_TURNSTILE_REQUIRED: ${AUDIO_TURNSTILE_REQUIRED:-false}
+      AUDIO_TURNSTILE_EXPECTED_HOSTNAMES: ${AUDIO_TURNSTILE_EXPECTED_HOSTNAMES:-}
+      AUDIO_SMTP_HOST: ${AUDIO_SMTP_HOST:-}
+      AUDIO_SMTP_PORT: ${AUDIO_SMTP_PORT:-587}
+      AUDIO_SMTP_USERNAME: ${AUDIO_SMTP_USERNAME:-}
+      AUDIO_SMTP_PASSWORD: ${AUDIO_SMTP_PASSWORD:-}
+      AUDIO_SMTP_FROM_EMAIL: ${AUDIO_SMTP_FROM_EMAIL:-noreply@example.com}
+      AUDIO_UPLOAD_DIR: /app/storage/uploads
+      AUDIO_GENERATED_DIR: /app/storage/generated
+      AUDIO_MUSIC_PROVIDER: ${AUDIO_MUSIC_PROVIDER:-demo}
+      AUDIO_MUSIC_API_URL: ${AUDIO_MUSIC_API_URL:-}
+      AUDIO_MUSIC_STATUS_URL: ${AUDIO_MUSIC_STATUS_URL:-}
+      AUDIO_MUSIC_API_KEY: ${AUDIO_MUSIC_API_KEY:-}
+      AUDIO_LLM_API_KEY: ${AUDIO_LLM_API_KEY:-}
+      AUDIO_LYRICS_API_URL: ${AUDIO_LYRICS_API_URL:-}
+      AUDIO_LYRICS_API_KEY: ${AUDIO_LYRICS_API_KEY:-}
+      # Container paths must not inherit the host-only relative paths from .env.
+      AUDIO_GENRE_MODEL_PATH: /app/models/genre/genre-model.onnx
+      AUDIO_GENRE_MODEL_METADATA_PATH: /app/models/genre/genre-model.metadata.json
+    volumes:
+      - uploads:/app/storage/uploads
+      - generated:/app/storage/generated
+      - ./backend/models:/app/models:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - data_internal
+      - web
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    # Only the isolated frontend network can reach this port, so it is safe to
+    # trust forwarded client metadata from that network.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-}
+    ports:
+      - "127.0.0.1:8080:80"
+    networks:
+      - web
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/health >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads:
+  generated:
+
+networks:
+  data_internal:
+    internal: true
+  web:

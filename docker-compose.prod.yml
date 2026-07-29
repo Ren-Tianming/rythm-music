@@ -1,0 +1,127 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: Asia/Tokyo
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - data_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - data_internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  migrations:
+    build: ./backend
+    environment: &backend_environment
+      AUDIO_ENVIRONMENT: production
+      AUDIO_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      AUDIO_REDIS_URL: redis://redis:6379/0
+      AUDIO_FRONTEND_URL: ${AUDIO_FRONTEND_URL}
+      AUDIO_COOKIE_SECURE: "true"
+      AUDIO_COOKIE_SAMESITE: strict
+      AUDIO_CORS_ORIGINS: ${AUDIO_CORS_ORIGINS}
+      AUDIO_ALLOWED_HOSTS: ${AUDIO_ALLOWED_HOSTS}
+      AUDIO_SESSION_IDLE_HOURS: "24"
+      AUDIO_SESSION_ABSOLUTE_DAYS: "14"
+      AUDIO_TURNSTILE_REQUIRED: "true"
+      AUDIO_TURNSTILE_SECRET_KEY: ${AUDIO_TURNSTILE_SECRET_KEY}
+      AUDIO_TURNSTILE_EXPECTED_HOSTNAMES: ${AUDIO_TURNSTILE_EXPECTED_HOSTNAMES}
+      AUDIO_SMTP_HOST: ${AUDIO_SMTP_HOST}
+      AUDIO_SMTP_PORT: ${AUDIO_SMTP_PORT:-587}
+      AUDIO_SMTP_USERNAME: ${AUDIO_SMTP_USERNAME}
+      AUDIO_SMTP_PASSWORD: ${AUDIO_SMTP_PASSWORD}
+      AUDIO_SMTP_FROM_EMAIL: ${AUDIO_SMTP_FROM_EMAIL}
+      AUDIO_SMTP_USE_TLS: "true"
+      AUDIO_UPLOAD_DIR: /app/storage/uploads
+      AUDIO_GENERATED_DIR: /app/storage/generated
+      AUDIO_GENRE_MODEL_PATH: /app/models/genre/genre-model.onnx
+      AUDIO_GENRE_MODEL_METADATA_PATH: /app/models/genre/genre-model.metadata.json
+      AUDIO_MUSIC_PROVIDER: ${AUDIO_MUSIC_PROVIDER:-demo}
+      AUDIO_MUSIC_API_URL: ${AUDIO_MUSIC_API_URL:-}
+      AUDIO_MUSIC_STATUS_URL: ${AUDIO_MUSIC_STATUS_URL:-}
+      AUDIO_MUSIC_API_KEY: ${AUDIO_MUSIC_API_KEY:-}
+      AUDIO_LLM_API_KEY: ${AUDIO_LLM_API_KEY:-}
+      AUDIO_LYRICS_API_URL: ${AUDIO_LYRICS_API_URL:-}
+      AUDIO_LYRICS_API_KEY: ${AUDIO_LYRICS_API_KEY:-}
+      AUDIO_ANALYSIS_POINTS_COST: ${AUDIO_ANALYSIS_POINTS_COST:-0}
+      AUDIO_GENERATION_POINTS_COST: ${AUDIO_GENERATION_POINTS_COST:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: alembic -c alembic.ini upgrade head
+    restart: "no"
+    networks:
+      - data_internal
+
+  backend:
+    build: ./backend
+    environment: *backend_environment
+    volumes:
+      - uploads:/app/storage/uploads
+      - generated:/app/storage/generated
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips=*
+    networks:
+      - data_internal
+      - web
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os, urllib.request; request = urllib.request.Request('http://127.0.0.1:8000/ready', headers={'Host': os.environ['AUDIO_ALLOWED_HOSTS'].split(',')[0]}); urllib.request.urlopen(request, timeout=2)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:?VITE_TURNSTILE_SITE_KEY is required}
+    ports:
+      - "80:80"
+    networks:
+      - web
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads:
+  generated:
+
+networks:
+  data_internal:
+    internal: true
+  web:

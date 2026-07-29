@@ -1,0 +1,5 @@
+{
+  "best_validation_track_macro_f1": 0.7834033613445379,
+  "test_track_accuracy": 0.775,
+  "test_track_macro_f1": 0.7678903225414853
+}
