@@ -309,7 +309,6 @@ function AuthCard({ locale, t, notice, setNotice, onSignedIn, resetToken }: { lo
 }
 
 type TurnstileApi = {
-  ready: (callback: () => void) => void;
   render: (container: HTMLElement, options: Record<string, unknown>) => string;
   remove: (widgetId: string) => void;
 };
@@ -324,18 +323,22 @@ function TurnstileWidget({ action, resetKey, onToken }: { action: "login" | "reg
     let canceled = false;
     let widgetId = "";
     const turnstileWindow = window as typeof window & { turnstile?: TurnstileApi };
-    const renderWidget = () => turnstileWindow.turnstile?.ready(() => {
+    const renderWidget = () => {
       if (canceled || !container.current || !turnstileWindow.turnstile) return;
-      widgetId = turnstileWindow.turnstile.render(container.current, {
-        sitekey: TURNSTILE_SITE_KEY,
-        action,
-        theme: "dark",
-        size: "flexible",
-        callback: (token: string) => callback.current(token),
-        "expired-callback": () => callback.current(""),
-        "error-callback": () => callback.current("")
-      });
-    });
+      try {
+        widgetId = turnstileWindow.turnstile.render(container.current, {
+          sitekey: TURNSTILE_SITE_KEY,
+          action,
+          theme: "dark",
+          size: "flexible",
+          callback: (token: string) => callback.current(token),
+          "expired-callback": () => callback.current(""),
+          "error-callback": () => callback.current("")
+        });
+      } catch {
+        callback.current("");
+      }
+    };
     let script = document.querySelector<HTMLScriptElement>("#turnstile-script");
     if (!script) {
       script = document.createElement("script");
