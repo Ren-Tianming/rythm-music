@@ -3,22 +3,32 @@ from unittest.mock import patch
 
 from app.api.routes import auth as auth_routes
 from app.api.routes import songs
+from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.security import token_digest, utc_now
-from app.models import AuthSession, User
+from app.models import AuditLog, AuthSession, User, UserConsent
 from fastapi.testclient import TestClient
+
+settings = get_settings()
+
+
+def registration_payload(email: str) -> dict[str, object]:
+    return {
+        "email": email,
+        "username": "制作者",
+        "password": "secure-pass-123",
+        "password_confirmation": "secure-pass-123",
+        "locale": "zh-CN",
+        "terms_version": settings.terms_version,
+        "terms_accepted": True,
+    }
 
 
 def register(client: TestClient, email: str) -> dict:
     with patch.object(auth_routes, "send_verification_email") as send_email:
         response = client.post(
             "/api/v1/auth/register",
-            json={
-                "email": email,
-                "username": "制作者",
-                "password": "secure-pass-123",
-                "password_confirmation": "secure-pass-123",
-            },
+            json=registration_payload(email),
         )
     assert response.status_code == 202
     verification_token = send_email.call_args.args[1]
@@ -72,12 +82,7 @@ def test_email_verification_opaque_session_devices_and_logout(client: TestClient
     with patch.object(auth_routes, "send_verification_email") as send_email:
         registered = client.post(
             "/api/v1/auth/register",
-            json={
-                "email": "cookie@example.com",
-                "username": "制作者",
-                "password": "secure-pass-123",
-                "password_confirmation": "secure-pass-123",
-            },
+            json=registration_payload("cookie@example.com"),
         )
     assert registered.status_code == 202
     assert not client.cookies.get("rythm_session")
@@ -102,9 +107,17 @@ def test_email_verification_opaque_session_devices_and_logout(client: TestClient
         stored_user = db.query(User).filter(User.email == "cookie@example.com").one()
         stored_session = db.query(AuthSession).filter(AuthSession.user_id == stored_user.id).one()
         assert stored_user.hashed_password.startswith("$argon2id$v=19$m=19456,t=2,p=1$")
-        assert stored_session.token_hash == token_digest(client.cookies.get("rythm_session"))
-        assert stored_session.csrf_hash == token_digest(client.cookies.get("rythm_csrf"))
+        assert stored_session.token_hash == token_digest(
+            client.cookies.get("rythm_session"),
+            settings.app_secret,
+        )
+        assert stored_session.csrf_hash == token_digest(
+            client.cookies.get("rythm_csrf"),
+            settings.app_secret,
+        )
         assert client.cookies.get("rythm_session") not in stored_session.token_hash
+        assert db.query(UserConsent).filter(UserConsent.user_id == stored_user.id).count() == 1
+        assert db.query(AuditLog).filter(AuditLog.user_id == stored_user.id).count() >= 3
 
     sessions = client.get("/api/v1/auth/sessions")
     assert sessions.status_code == 200
@@ -130,6 +143,13 @@ def test_email_verification_opaque_session_devices_and_logout(client: TestClient
     assert rejected.status_code == 403
     assert rejected.json()["error"]["code"] == "CSRF_VALIDATION_FAILED"
 
+    rejected_origin = client.post(
+        "/api/v1/auth/logout",
+        headers={**csrf_headers(client), "Origin": "https://attacker.example"},
+    )
+    assert rejected_origin.status_code == 403
+    assert rejected_origin.json()["error"]["code"] == "CSRF_ORIGIN_INVALID"
+
     logged_out = client.post("/api/v1/auth/logout", headers=csrf_headers(client))
     assert logged_out.status_code == 200
     assert not client.cookies.get("rythm_session")
@@ -148,7 +168,7 @@ def test_operational_endpoints_expose_readiness_request_id_and_metrics(client: T
 
 def test_session_idle_and_absolute_expiry_are_enforced_server_side(client: TestClient) -> None:
     register(client, "expiry@example.com")
-    session_hash = token_digest(client.cookies.get("rythm_session"))
+    session_hash = token_digest(client.cookies.get("rythm_session"), settings.app_secret)
     with SessionLocal() as db:
         stored = db.query(AuthSession).filter(AuthSession.token_hash == session_hash).one()
         stored.last_seen_at = utc_now() - timedelta(hours=25)
@@ -159,7 +179,7 @@ def test_session_idle_and_absolute_expiry_are_enforced_server_side(client: TestC
         "/api/v1/auth/login",
         json={"email": "expiry@example.com", "password": "secure-pass-123"},
     ).status_code == 200
-    session_hash = token_digest(client.cookies.get("rythm_session"))
+    session_hash = token_digest(client.cookies.get("rythm_session"), settings.app_secret)
     with SessionLocal() as db:
         stored = db.query(AuthSession).filter(AuthSession.token_hash == session_hash).one()
         stored.expires_at = utc_now() - timedelta(seconds=1)
@@ -211,6 +231,14 @@ def test_demo_generation_publish_and_public_feed(client: TestClient) -> None:
     assert track["status"] == "SUCCESS"
     assert track["audio_url"].startswith("/media/generated/demo-")
     assert track["points_cost"] == 0
+    assert client.get(track["audio_url"]).status_code == 200
+
+    client.cookies.clear()
+    assert client.get(track["audio_url"]).status_code == 404
+    assert client.post(
+        "/api/v1/auth/login",
+        json={"email": "music-maker@example.com", "password": "secure-pass-123"},
+    ).status_code == 200
 
     published = client.post(
         "/api/v1/music/works",
@@ -226,8 +254,14 @@ def test_demo_generation_publish_and_public_feed(client: TestClient) -> None:
     assert work["title"] == "Neon Run"
     assert work["creator_name"] == "制作者"
 
+    client.cookies.clear()
+    assert client.get(track["audio_url"]).status_code == 200
     feed = client.get("/api/v1/music/works")
     assert any(item["id"] == work["id"] for item in feed.json())
+    assert client.post(
+        "/api/v1/auth/login",
+        json={"email": "music-maker@example.com", "password": "secure-pass-123"},
+    ).status_code == 200
     liked = client.post(f"/api/v1/music/works/{work['id']}/like", headers=csrf_headers(client))
     assert liked.json()["likes_count"] == 1
     liked_again = client.post(f"/api/v1/music/works/{work['id']}/like", headers=csrf_headers(client))
@@ -239,6 +273,47 @@ def test_payment_routes_are_not_part_of_v01(client: TestClient) -> None:
     assert client.get("/api/v1/pricing/packages").status_code == 404
     assert client.post("/api/v1/orders", json={"package_id": 1}, headers=csrf_headers(client)).status_code == 404
     assert client.get("/api/v1/admin/orders").status_code == 404
+
+
+def test_password_reset_is_one_time_and_revokes_sessions(client: TestClient) -> None:
+    register(client, "reset@example.com")
+    with patch.object(auth_routes, "send_password_reset_email") as send_email:
+        requested = client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "reset@example.com"},
+        )
+    assert requested.status_code == 200
+    reset_token = send_email.call_args.args[1]
+
+    reset = client.post(
+        "/api/v1/auth/reset-password",
+        json={
+            "token": reset_token,
+            "password": "different-secure-pass-456",
+            "password_confirmation": "different-secure-pass-456",
+        },
+    )
+    assert reset.status_code == 200
+    assert not client.cookies.get("rythm_session")
+    assert client.get("/api/v1/auth/me").status_code == 401
+    assert client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "reset@example.com",
+            "password": "different-secure-pass-456",
+        },
+    ).status_code == 200
+
+    reused = client.post(
+        "/api/v1/auth/reset-password",
+        json={
+            "token": reset_token,
+            "password": "third-secure-pass-789",
+            "password_confirmation": "third-secure-pass-789",
+        },
+    )
+    assert reused.status_code == 400
+    assert reused.json()["error"]["code"] == "INVALID_PASSWORD_RESET_TOKEN"
 
 
 def test_founder_profile_is_public(client: TestClient) -> None:

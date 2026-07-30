@@ -1,5 +1,4 @@
 import numpy as np
-
 from app.audio import bpm, key
 from app.audio.waveform import get_waveform
 

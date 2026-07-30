@@ -1,3 +1,5 @@
+name: rythm-music
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -54,6 +56,7 @@ services:
       AUDIO_ENVIRONMENT: development
       AUDIO_FRONTEND_URL: http://localhost:8080
       AUDIO_CORS_ORIGINS: http://localhost:5173,http://localhost:8080
+      AUDIO_CSRF_TRUSTED_ORIGINS: http://localhost:5173,http://localhost:8080
       AUDIO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
       AUDIO_SESSION_IDLE_HOURS: 24
       AUDIO_SESSION_ABSOLUTE_DAYS: 14
@@ -106,6 +109,8 @@ services:
       context: ./frontend
       args:
         VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-}
+        VITE_TERMS_VERSION: ${AUDIO_TERMS_VERSION:-2026-07-30}
+        VITE_CSRF_COOKIE_NAME: rythm_csrf
     ports:
       - "127.0.0.1:8080:80"
     networks:

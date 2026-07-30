@@ -12,8 +12,10 @@ import {
 
 type Locale = "zh" | "ja" | "en";
 type Page = "studio" | "analyze" | "generate" | "works" | "history" | "founder" | "account";
+type AuthMode = "login" | "register" | "forgot" | "resend" | "reset";
 type Dictionary = typeof copy.zh;
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY ?? "";
+const TERMS_VERSION = import.meta.env.VITE_TERMS_VERSION ?? "2026-07-30";
 
 const copy = {
   zh: {
@@ -33,7 +35,8 @@ const copy = {
     historyTitle: "分析历史", historyBody: "查看过去的分析结果与报告。", noHistory: "还没有分析记录。", success: "完成", failed: "失败",
     founderTag: "FOUNDER / PRODUCER", founderTitle: "创始人 RyThM 音乐", founderFallback: "音乐制作人与软件工程师，探索机器精度与人类节奏的交界。", founderWorks: "创始人作品", founderEmpty: "创始人音乐将陆续发布到这里。",
     requestFailed: "请求失败，请稍后重试。", registerBonus: "Argon2id · 邮箱激活 · 可撤销 Session", dailyBonus: "今日登录奖励", publicHome: "首页", durationMinute: "分", durationSecond: "秒",
-    humanCheck: "请完成人机验证", verificationSent: "请检查邮箱并完成激活后登录。", securityTitle: "账户与设备", securityBody: "查看当前登录设备，并立即撤销任何服务端 Session。", devices: "登录设备", currentDevice: "当前设备", revoke: "立即撤销", revokeAll: "退出所有设备", lastSeen: "最近活动", unknownDevice: "未知设备"
+    humanCheck: "请完成人机验证", verificationSent: "请检查邮箱并完成激活后登录。", securityTitle: "账户与设备", securityBody: "查看当前登录设备，并立即撤销任何服务端 Session。", devices: "登录设备", currentDevice: "当前设备", revoke: "立即撤销", revokeAll: "退出所有设备", lastSeen: "最近活动", unknownDevice: "未知设备",
+    passwordConfirm: "确认密码", forgotPassword: "忘记密码", resendVerification: "重发验证邮件", resetPassword: "重置密码", resetSent: "如账号存在，重置邮件已经发送。", resetDone: "密码已重置，请重新登录。", termsConsent: "我同意", terms: "使用条款", privacy: "隐私政策", backToLogin: "返回登录"
   },
   ja: {
     signIn: "ログイン", signUp: "新規登録", email: "メール", password: "パスワード", username: "ユーザー名", start: "制作を始める",
@@ -52,7 +55,8 @@ const copy = {
     historyTitle: "解析履歴", historyBody: "過去の解析結果とレポートを確認。", noHistory: "解析履歴はありません。", success: "完了", failed: "失敗",
     founderTag: "FOUNDER / PRODUCER", founderTitle: "創業者 RyThM の音楽", founderFallback: "機械の精度と人間のリズムの境界を探る、音楽プロデューサー兼ソフトウェアエンジニア。", founderWorks: "Founder Tracks", founderEmpty: "Founder の楽曲は順次公開予定です。",
     requestFailed: "処理に失敗しました。しばらくしてから再試行してください。", registerBonus: "Argon2id・メール確認・取消可能Session", dailyBonus: "本日のログインボーナス", publicHome: "ホーム", durationMinute: "分", durationSecond: "秒",
-    humanCheck: "人間確認を完了してください", verificationSent: "確認メールから有効化した後、ログインしてください。", securityTitle: "アカウントと端末", securityBody: "ログイン中の端末を確認し、サーバーSessionを即時失効できます。", devices: "ログイン端末", currentDevice: "現在の端末", revoke: "今すぐ失効", revokeAll: "全端末からログアウト", lastSeen: "最終利用", unknownDevice: "不明な端末"
+    humanCheck: "人間確認を完了してください", verificationSent: "確認メールから有効化した後、ログインしてください。", securityTitle: "アカウントと端末", securityBody: "ログイン中の端末を確認し、サーバーSessionを即時失効できます。", devices: "ログイン端末", currentDevice: "現在の端末", revoke: "今すぐ失効", revokeAll: "全端末からログアウト", lastSeen: "最終利用", unknownDevice: "不明な端末",
+    passwordConfirm: "パスワード確認", forgotPassword: "パスワードを忘れた場合", resendVerification: "確認メールを再送", resetPassword: "パスワード再設定", resetSent: "該当する場合は再設定メールを送信しました。", resetDone: "パスワードを再設定しました。ログインしてください。", termsConsent: "同意します：", terms: "利用規約", privacy: "プライバシーポリシー", backToLogin: "ログインへ戻る"
   },
   en: {
     signIn: "Sign in", signUp: "Create account", email: "Email", password: "Password", username: "Username", start: "Start creating",
@@ -71,7 +75,8 @@ const copy = {
     historyTitle: "Analysis history", historyBody: "Review past results and reports.", noHistory: "No analysis history yet.", success: "Success", failed: "Failed",
     founderTag: "FOUNDER / PRODUCER", founderTitle: "Music by founder RyThM", founderFallback: "A music producer and software engineer exploring the border between machine precision and human rhythm.", founderWorks: "Founder tracks", founderEmpty: "Founder tracks will appear here as they are released.",
     requestFailed: "Request failed. Please try again.", registerBonus: "Argon2id · email verified · revocable session", dailyBonus: "Daily login bonus", publicHome: "Home", durationMinute: " min ", durationSecond: " sec",
-    humanCheck: "Complete the human check", verificationSent: "Check your email and activate the account before signing in.", securityTitle: "Account and devices", securityBody: "Review signed-in devices and revoke any server session immediately.", devices: "Signed-in devices", currentDevice: "Current device", revoke: "Revoke now", revokeAll: "Log out all devices", lastSeen: "Last active", unknownDevice: "Unknown device"
+    humanCheck: "Complete the human check", verificationSent: "Check your email and activate the account before signing in.", securityTitle: "Account and devices", securityBody: "Review signed-in devices and revoke any server session immediately.", devices: "Signed-in devices", currentDevice: "Current device", revoke: "Revoke now", revokeAll: "Log out all devices", lastSeen: "Last active", unknownDevice: "Unknown device",
+    passwordConfirm: "Confirm password", forgotPassword: "Forgot password", resendVerification: "Resend verification", resetPassword: "Reset password", resetSent: "If the account exists, a reset email was sent.", resetDone: "Password reset. Please sign in again.", termsConsent: "I agree to the", terms: "Terms", privacy: "Privacy Policy", backToLogin: "Back to sign in"
   }
 } as const;
 
@@ -120,12 +125,15 @@ export function App() {
   const [page, setPage] = useState<Page>("studio");
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
+  const [resetToken, setResetToken] = useState<string | null>(null);
   const t = copy[locale] as Dictionary;
 
   useEffect(() => {
     const hash = new URLSearchParams(window.location.hash.slice(1));
     const verificationToken = hash.get("verify");
-    if (verificationToken) {
+    const passwordResetToken = hash.get("reset");
+    if (passwordResetToken) setResetToken(passwordResetToken);
+    if (verificationToken || passwordResetToken) {
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
     }
     const verify = verificationToken
@@ -167,7 +175,7 @@ export function App() {
   }
 
   if (loading) return <div className="boot"><img src="/rythm-logo.png" /><span>RyThM Music</span></div>;
-  if (!user) return <PublicHome locale={locale} setLocale={setLocale} t={t} notice={notice} setNotice={setNotice} onSignedIn={signedIn} />;
+  if (!user) return <PublicHome locale={locale} setLocale={setLocale} t={t} notice={notice} setNotice={setNotice} onSignedIn={signedIn} resetToken={resetToken} />;
 
   return (
     <div className="app-shell">
@@ -215,7 +223,7 @@ function LocalePicker({ locale, setLocale }: { locale: Locale; setLocale: (local
   </label>;
 }
 
-function PublicHome({ locale, setLocale, t, notice, setNotice, onSignedIn }: { locale: Locale; setLocale: (locale: Locale) => void; t: Dictionary; notice: string; setNotice: (notice: string) => void; onSignedIn: (result: AuthResponse) => void }) {
+function PublicHome({ locale, setLocale, t, notice, setNotice, onSignedIn, resetToken }: { locale: Locale; setLocale: (locale: Locale) => void; t: Dictionary; notice: string; setNotice: (notice: string) => void; onSignedIn: (result: AuthResponse) => void; resetToken: string | null }) {
   return <main className="auth-page">
     <div className="auth-ambient auth-ambient--one" aria-hidden="true" />
     <div className="auth-ambient auth-ambient--two" aria-hidden="true" />
@@ -226,22 +234,39 @@ function PublicHome({ locale, setLocale, t, notice, setNotice, onSignedIn }: { l
         <p>{t.heroBody}</p>
         <div className="model-orbits" aria-hidden="true"><i /><i /><i /></div>
       </div>
-      <AuthCard t={t} notice={notice} setNotice={setNotice} onSignedIn={onSignedIn} />
+      <AuthCard locale={locale} t={t} notice={notice} setNotice={setNotice} onSignedIn={onSignedIn} resetToken={resetToken} />
     </section>
   </main>;
 }
 
-function AuthCard({ t, notice, setNotice, onSignedIn }: { t: Dictionary; notice: string; setNotice: (notice: string) => void; onSignedIn: (result: AuthResponse) => void }) {
-  const [register, setRegister] = useState(false); const [email, setEmail] = useState(""); const [username, setUsername] = useState(""); const [password, setPassword] = useState(""); const [working, setWorking] = useState(false); const [error, setError] = useState(""); const [turnstileToken, setTurnstileToken] = useState(TURNSTILE_SITE_KEY ? "" : "development-not-required"); const [turnstileReset, setTurnstileReset] = useState(0);
+function AuthCard({ locale, t, notice, setNotice, onSignedIn, resetToken }: { locale: Locale; t: Dictionary; notice: string; setNotice: (notice: string) => void; onSignedIn: (result: AuthResponse) => void; resetToken: string | null }) {
+  const [mode, setMode] = useState<AuthMode>(resetToken ? "reset" : "login");
+  const [email, setEmail] = useState(""); const [username, setUsername] = useState(""); const [password, setPassword] = useState(""); const [passwordConfirmation, setPasswordConfirmation] = useState(""); const [termsAccepted, setTermsAccepted] = useState(false); const [working, setWorking] = useState(false); const [error, setError] = useState(""); const [turnstileToken, setTurnstileToken] = useState(TURNSTILE_SITE_KEY ? "" : "development-not-required"); const [turnstileReset, setTurnstileReset] = useState(0);
+  const requiresTurnstile = mode !== "reset";
+  const action = mode === "forgot" ? "forgot-password" : mode === "resend" ? "resend-verification" : mode === "register" ? "register" : "login";
+  const title = mode === "register" ? t.signUp : mode === "forgot" ? t.forgotPassword : mode === "resend" ? t.resendVerification : mode === "reset" ? t.resetPassword : t.signIn;
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!turnstileToken) { setError(t.humanCheck); return; }
+    if (requiresTurnstile && !turnstileToken) { setError(t.humanCheck); return; }
+    if ((mode === "register" || mode === "reset") && password !== passwordConfirmation) { setError(t.passwordConfirm); return; }
     setWorking(true); setError(""); setNotice("");
     try {
-      if (register) {
-        const result = await api.register(email, username, password, turnstileToken);
+      if (mode === "register") {
+        if (!termsAccepted) { setError(t.termsConsent); return; }
+        const apiLocale = locale === "ja" ? "ja-JP" : locale === "en" ? "en-US" : "zh-CN";
+        const result = await api.register(email, username, password, apiLocale, TERMS_VERSION, turnstileToken);
         setNotice(result.message || t.verificationSent);
-        setRegister(false); setPassword("");
+        setMode("login"); setPassword(""); setPasswordConfirmation("");
+      } else if (mode === "forgot") {
+        const result = await api.forgotPassword(email, turnstileToken);
+        setNotice(result.message || t.resetSent);
+      } else if (mode === "resend") {
+        const result = await api.resendVerification(email, turnstileToken);
+        setNotice(result.message || t.verificationSent);
+      } else if (mode === "reset" && resetToken) {
+        const result = await api.resetPassword(resetToken, password);
+        setNotice(result.message || t.resetDone);
+        setMode("login"); setPassword(""); setPasswordConfirmation("");
       } else {
         onSignedIn(await api.login(email, password, turnstileToken));
       }
@@ -255,26 +280,30 @@ function AuthCard({ t, notice, setNotice, onSignedIn }: { t: Dictionary; notice:
       }
     }
   }
-  function changeMode(next: boolean) {
-    setRegister(next); setError(""); setNotice("");
+  function changeMode(next: AuthMode) {
+    setMode(next); setError(""); setNotice(""); setPassword(""); setPasswordConfirmation("");
     if (TURNSTILE_SITE_KEY) { setTurnstileToken(""); setTurnstileReset((value) => value + 1); }
   }
   return <div className="auth-card__form">
     <div className="auth-tabs">
-      <button className={!register ? "active" : ""} type="button" onClick={() => changeMode(false)}>{t.signIn}</button>
-      <button className={register ? "active" : ""} type="button" onClick={() => changeMode(true)}>{t.signUp}</button>
+      <button className={mode === "login" ? "active" : ""} type="button" onClick={() => changeMode("login")}>{t.signIn}</button>
+      <button className={mode === "register" ? "active" : ""} type="button" onClick={() => changeMode("register")}>{t.signUp}</button>
     </div>
-    <h1>{register ? t.signUp : t.signIn}</h1>
+    <h1>{title}</h1>
     <p className="auth-hint">{t.authTitle} · {t.authHint}</p>
     {notice && <div className="auth-notice success" role="status">{notice}</div>}
     {error && <div className="auth-notice" role="alert">{error}</div>}
     <form onSubmit={submit}>
-      {register && <AuthField icon="◇" label={t.username} value={username} setValue={setUsername} autoComplete="username" />}
-      <AuthField icon="@" label={t.email} value={email} setValue={setEmail} type="email" autoComplete="email" />
-      <AuthField icon="●" label={`${t.password}${register ? " (12–128)" : ""}`} value={password} setValue={setPassword} type="password" minLength={register ? 12 : 1} autoComplete={register ? "new-password" : "current-password"} />
-      <TurnstileWidget action={register ? "register" : "login"} resetKey={turnstileReset} onToken={setTurnstileToken} />
-      <button className="auth-submit" disabled={working || !turnstileToken} type="submit">{working ? t.working : register ? t.signUp : t.signIn}<span aria-hidden="true">→</span></button>
+      {mode === "register" && <AuthField icon="◇" label={t.username} value={username} setValue={setUsername} autoComplete="username" />}
+      {mode !== "reset" && <AuthField icon="@" label={t.email} value={email} setValue={setEmail} type="email" autoComplete="email" />}
+      {(mode === "login" || mode === "register" || mode === "reset") && <AuthField icon="●" label={`${t.password}${mode !== "login" ? " (12–128)" : ""}`} value={password} setValue={setPassword} type="password" minLength={mode === "login" ? 1 : 12} autoComplete={mode === "login" ? "current-password" : "new-password"} />}
+      {(mode === "register" || mode === "reset") && <AuthField icon="●" label={t.passwordConfirm} value={passwordConfirmation} setValue={setPasswordConfirmation} type="password" minLength={12} autoComplete="new-password" />}
+      {mode === "register" && <label className="auth-consent"><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} required /><span>{t.termsConsent} <a href="/terms.html" target="_blank" rel="noreferrer">{t.terms}</a> · <a href="/privacy.html" target="_blank" rel="noreferrer">{t.privacy}</a></span></label>}
+      {requiresTurnstile && <TurnstileWidget action={action} resetKey={turnstileReset} onToken={setTurnstileToken} />}
+      <button className="auth-submit" disabled={working || (requiresTurnstile && !turnstileToken)} type="submit">{working ? t.working : title}<span aria-hidden="true">→</span></button>
     </form>
+    {mode === "login" && <div className="auth-links"><button type="button" onClick={() => changeMode("forgot")}>{t.forgotPassword}</button><button type="button" onClick={() => changeMode("resend")}>{t.resendVerification}</button></div>}
+    {(mode === "forgot" || mode === "resend" || mode === "reset") && <div className="auth-links"><button type="button" onClick={() => changeMode("login")}>{t.backToLogin}</button></div>}
     <p className="privacy-note">✦ {t.registerBonus}</p>
   </div>;
 }
@@ -285,7 +314,7 @@ type TurnstileApi = {
   remove: (widgetId: string) => void;
 };
 
-function TurnstileWidget({ action, resetKey, onToken }: { action: "login" | "register"; resetKey: number; onToken: (token: string) => void }) {
+function TurnstileWidget({ action, resetKey, onToken }: { action: "login" | "register" | "forgot-password" | "resend-verification"; resetKey: number; onToken: (token: string) => void }) {
   const container = useRef<HTMLDivElement>(null);
   const callback = useRef(onToken);
   callback.current = onToken;

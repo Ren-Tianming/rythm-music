@@ -1,19 +1,58 @@
 from dataclasses import dataclass
 from datetime import UTC, timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import AppError
-from app.core.security import hash_password, new_token, password_needs_rehash, token_digest, utc_now, verify_password
-from app.models import AuthSession, DailyLoginReward, EmailVerificationToken, User
-from app.schemas.api import LoginRequest, UserCreate, UserResponse
+from app.core.security import (
+    hash_password,
+    new_token,
+    password_needs_rehash,
+    token_digest,
+    utc_now,
+    verify_password,
+)
+from app.models import (
+    AuditLog,
+    AuthSession,
+    DailyLoginReward,
+    EmailVerificationToken,
+    PasswordResetToken,
+    User,
+    UserConsent,
+)
+from app.schemas.api import LoginRequest, ResetPasswordRequest, UserCreate, UserResponse
 from app.services.points import apply_points
 
 settings = get_settings()
 DUMMY_PASSWORD_HASH = hash_password(new_token(32))
+
+
+def record_audit(
+    db: Session,
+    event_type: str,
+    *,
+    user_id: int | None = None,
+    result: str = "success",
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+    request_id: str | None = None,
+    metadata_redacted: dict | None = None,
+) -> None:
+    db.add(
+        AuditLog(
+            user_id=user_id,
+            event_type=event_type,
+            result=result,
+            ip_address=ip_address[:64] if ip_address else None,
+            user_agent=user_agent[:512] if user_agent else None,
+            request_id=request_id[:80] if request_id else None,
+            metadata_redacted=metadata_redacted,
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -39,7 +78,7 @@ def _issue_verification_token(db: Session, user: User) -> str:
     db.add(
         EmailVerificationToken(
             user_id=user.id,
-            token_hash=token_digest(plain_token),
+            token_hash=token_digest(plain_token, settings.app_secret),
             expires_at=utc_now()
             + timedelta(hours=settings.email_verification_expire_hours),
         )
@@ -75,8 +114,8 @@ def _issue_session(
     db.add(
         AuthSession(
             user_id=user.id,
-            token_hash=token_digest(session_token),
-            csrf_hash=token_digest(csrf_token),
+            token_hash=token_digest(session_token, settings.app_secret),
+            csrf_hash=token_digest(csrf_token, settings.app_secret),
             user_agent=user_agent[:512] if user_agent else None,
             ip_address=ip_address[:64] if ip_address else None,
             last_seen_at=now,
@@ -90,11 +129,14 @@ def _issue_session(
 def register_user(
     db: Session,
     payload: UserCreate,
+    ip_address: str | None = None,
 ) -> tuple[str | None, str | None]:
     if payload.password != payload.password_confirmation:
         raise AppError(422, "PASSWORD_CONFIRMATION_MISMATCH", "パスワード確認が一致しません。")
 
     email = _normalized_email(payload.email)
+    if payload.terms_version != settings.terms_version:
+        raise AppError(422, "CONSENT_REQUIRED", "現在の利用規約への同意が必要です。")
     existing = db.scalar(select(User).where(User.email == email).with_for_update())
     if existing is not None:
         # Match the Argon2 work performed for a new account to reduce timing enumeration.
@@ -114,12 +156,27 @@ def register_user(
         email=email,
         username=payload.username,
         hashed_password=hash_password(payload.password),
+        locale=payload.locale,
         status="PENDING_VERIFICATION",
         is_email_verified=False,
     )
     db.add(user)
     try:
         db.flush()
+        db.add(
+            UserConsent(
+                user_id=user.id,
+                document_type="terms",
+                document_version=payload.terms_version,
+                ip_address=ip_address,
+            )
+        )
+        record_audit(
+            db,
+            "user_registered",
+            user_id=user.id,
+            ip_address=ip_address,
+        )
         plain_token = _issue_verification_token(db, user)
         db.commit()
         return user.email, plain_token
@@ -133,7 +190,7 @@ def verify_email(db: Session, plain_token: str) -> UserResponse:
     token = db.scalar(
         select(EmailVerificationToken)
         .where(
-            EmailVerificationToken.token_hash == token_digest(plain_token),
+            EmailVerificationToken.token_hash == token_digest(plain_token, settings.app_secret),
             EmailVerificationToken.used_at.is_(None),
             EmailVerificationToken.expires_at > now,
         )
@@ -164,6 +221,7 @@ def verify_email(db: Session, plain_token: str) -> UserResponse:
             )
 
     token.used_at = now
+    record_audit(db, "email_verified", user_id=user.id)
     db.execute(
         delete(EmailVerificationToken).where(
             EmailVerificationToken.user_id == user.id,
@@ -242,6 +300,109 @@ def login_user(
         user=UserResponse.model_validate(user),
         daily_bonus_awarded=daily_bonus,
     )
+
+
+def request_password_reset(
+    db: Session,
+    email_value: object,
+) -> tuple[str | None, str | None]:
+    email = _normalized_email(email_value)
+    user = db.scalar(select(User).where(User.email == email).with_for_update())
+    if user is None or user.status != "ACTIVE" or not user.is_email_verified:
+        return None, None
+
+    now = utc_now()
+    db.execute(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used_at.is_(None),
+        )
+        .values(used_at=now)
+    )
+    plain_token = new_token(32)
+    db.add(
+        PasswordResetToken(
+            user_id=user.id,
+            token_hash=token_digest(plain_token, settings.app_secret),
+            expires_at=now + timedelta(minutes=settings.password_reset_expire_minutes),
+        )
+    )
+    record_audit(db, "password_reset_requested", user_id=user.id)
+    db.commit()
+    return user.email, plain_token
+
+
+def resend_verification(
+    db: Session,
+    email_value: object,
+) -> tuple[str | None, str | None]:
+    email = _normalized_email(email_value)
+    user = db.scalar(select(User).where(User.email == email).with_for_update())
+    if (
+        user is None
+        or user.status != "PENDING_VERIFICATION"
+        or user.is_email_verified
+        or _verification_on_cooldown(db, user.id)
+    ):
+        return None, None
+    plain_token = _issue_verification_token(db, user)
+    record_audit(db, "email_verification_resent", user_id=user.id)
+    db.commit()
+    return user.email, plain_token
+
+
+def reset_password(
+    db: Session,
+    payload: ResetPasswordRequest,
+    *,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+    request_id: str | None = None,
+) -> int:
+    now = utc_now()
+    token = db.scalar(
+        select(PasswordResetToken)
+        .where(
+            PasswordResetToken.token_hash
+            == token_digest(payload.token, settings.app_secret),
+            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.expires_at > now,
+        )
+        .with_for_update()
+    )
+    if token is None:
+        raise AppError(
+            400,
+            "INVALID_PASSWORD_RESET_TOKEN",
+            "パスワード再設定リンクが無効か、有効期限が切れています。",
+        )
+    user = db.scalar(select(User).where(User.id == token.user_id).with_for_update())
+    if user is None:
+        raise AppError(400, "INVALID_PASSWORD_RESET_TOKEN", "パスワード再設定リンクが無効です。")
+    if verify_password(payload.password, user.hashed_password):
+        raise AppError(422, "PASSWORD_REUSE_NOT_ALLOWED", "新しいパスワードを指定してください。")
+
+    user.hashed_password = hash_password(payload.password)
+    db.execute(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used_at.is_(None),
+        )
+        .values(used_at=now)
+    )
+    db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+    record_audit(
+        db,
+        "password_reset",
+        user_id=user.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        request_id=request_id,
+    )
+    db.commit()
+    return user.id
 
 
 def revoke_session(db: Session, user_id: int, session_id: str) -> bool:

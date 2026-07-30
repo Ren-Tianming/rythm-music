@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up the shared RyThM PostgreSQL databases
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=rythm
+Group=rythm
+Environment=RYTHM_MUSIC_PROJECT_DIR=/opt/rythm-music
+ExecStart=/opt/rythm-music/deploy/backup-shared-postgres.sh

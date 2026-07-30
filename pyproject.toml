@@ -13,6 +13,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "backend/app/schemas/api.py" = ["S105"]
+"backend/app/services/analyzer.py" = ["S603"]
 "backend/tests/*" = ["E402", "S101", "S105", "S106"]
 "backend/alembic/versions/*" = ["S608"]
 

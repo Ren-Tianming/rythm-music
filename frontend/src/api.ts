@@ -1,9 +1,11 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
+const CSRF_COOKIE_NAME = import.meta.env.VITE_CSRF_COOKIE_NAME ?? "rythm_csrf";
 
 export type User = {
   id: number;
   email: string;
   username: string;
+  locale: string;
   role: string;
   status: string;
   points_balance: number;
@@ -99,7 +101,7 @@ function cookie(name: string): string {
 
 function csrfHeaders(headers: Headers, method: string): void {
   if (["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) return;
-  const token = cookie("rythm_csrf");
+  const token = cookie(CSRF_COOKIE_NAME);
   if (token) headers.set("X-CSRF-Token", token);
 }
 
@@ -134,7 +136,14 @@ async function requestBlob(path: string): Promise<Blob> {
 }
 
 export const api = {
-  register: (email: string, username: string, password: string, turnstileToken: string) =>
+  register: (
+    email: string,
+    username: string,
+    password: string,
+    locale: string,
+    termsVersion: string,
+    turnstileToken: string
+  ) =>
     request<Message>("/auth/register", {
       method: "POST",
       body: JSON.stringify({
@@ -142,6 +151,9 @@ export const api = {
         username,
         password,
         password_confirmation: password,
+        locale,
+        terms_version: termsVersion,
+        terms_accepted: true,
         turnstile_token: turnstileToken
       })
     }),
@@ -154,6 +166,25 @@ export const api = {
     request<AuthResponse>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password, turnstile_token: turnstileToken })
+    }),
+  resendVerification: (email: string, turnstileToken: string) =>
+    request<Message>("/auth/resend-verification", {
+      method: "POST",
+      body: JSON.stringify({ email, turnstile_token: turnstileToken })
+    }),
+  forgotPassword: (email: string, turnstileToken: string) =>
+    request<Message>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email, turnstile_token: turnstileToken })
+    }),
+  resetPassword: (token: string, password: string) =>
+    request<Message>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({
+        token,
+        password,
+        password_confirmation: password
+      })
     }),
   logout: () => request<Message>("/auth/logout", { method: "POST" }),
   logoutAll: () => request<Message>("/auth/logout-all", { method: "POST" }),

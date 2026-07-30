@@ -13,11 +13,14 @@ Cookie認証、音楽生成デモ、作品公開、履歴を実装し、決済�
 ## 已实现 / 実装済み
 
 - 中文、日本語、English 三语响应式赛博朋克界面
-- Turnstile 人机验证、邮箱激活、Argon2id 密码、可撤销 HttpOnly 不透明 Session
-- 24 小时空闲 / 14 天绝对 Session 超时、设备列表、Session 绑定 CSRF
+- Turnstile 人机验证、邮箱激活、一次性密码恢复、Argon2id 密码
+- 可撤销 HttpOnly 不透明 Session、设备 IP 脱敏、安全审计流水
+- 24 小时空闲 / 14 天绝对 Session 超时、Session 绑定 CSRF 与 Origin/Referer
+- 版本化使用条款/隐私政策与注册同意记录
 - 用户数据隔离：分析历史和生成记录只返回当前用户的数据
 - BPM、Key、RMS、LUFS、波形、Mel 频谱
 - Tonnetz 12 维特征 + ONNX Runtime 曲风分类
+- 单并发 FIFO 音源解析队列，避免小型 EC2 被并行分析压垮
 - 歌词提取：预留 OpenAI-compatible 音频转写接口
 - 无外部 Key 时可运行的本地分析总结和短 WAV 生成 Demo
 - 作品发布、公开作品流、Founder RyThM 页面、PDF 报告
@@ -116,18 +119,20 @@ AUDIO_LYRICS_MODEL=whisper-1
 
 ## 安全说明 / セキュリティ
 
-- 浏览器认证仅使用随机不透明的 HttpOnly Session Cookie；数据库只保存
-  SHA-256 哈希，旧 JWT/Refresh Cookie 在迁移时统一失效。
+- 浏览器认证仅使用随机不透明的 HttpOnly Session Cookie；数据库只保存使用
+  `APP_SECRET` 的 HMAC-SHA-256 摘要，生产 Cookie 使用 `__Host-` 前缀。
 - 密码长度为 12–128 字符，使用 Argon2id（19 MiB、t=2、p=1）；旧 bcrypt
   用户成功登录后自动升级。
 - 修改类请求要求 Cookie、`X-CSRF-Token` 与当前服务端 Session 内的 CSRF
-  哈希三者一致。
+  摘要三者一致，并验证 `Origin` / `Referer`。
 - 新账号必须通过 Turnstile 和一次性邮件链接。链接凭证放在 URL fragment，
   前端会在请求前立即清除。
 - 生产环境配置不安全时后端会拒绝启动；必须提供 HTTPS 前端地址、Secure
-  Cookie、明确的 CORS/Host、Turnstile hostname、TLS SMTP。
+  Cookie、明确的 CORS/CSRF/Host、Turnstile hostname、TLS SMTP，且拒绝常见
+  占位值。
 - Nginx 设置 CSP、DENY frame、nosniff、Referrer/Permissions Policy、
   HSTS 与认证限流；生产 Compose 不暴露 PostgreSQL、Redis 和后端端口。
+- 未发布的生成音乐只允许所有者读取；公开发布后才允许匿名媒体访问。
 - 支付、订单、套餐和 Mock Pay 路由未挂载到本版 API。
 
 ## 验证 / 検証
@@ -166,7 +171,8 @@ docker compose ps
 数据库迁移会在 API 启动前自动执行。数据保存在 Docker volumes 中，
 普通的 `docker compose down` 不会删除数据。
 
-AWS 用配置和安全注意事项见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+EC2 `t4g.small`、共享 PostgreSQL、单一宿主机 Nginx 和
+`www.rythmmusic.site` 的完整步骤见 [DEPLOYMENT.md](DEPLOYMENT.md)。
 
 ## 当前边界 / 現在の制約
 

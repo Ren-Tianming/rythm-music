@@ -15,6 +15,8 @@
 
 # testing
 /coverage
+__pycache__/
+*.py[cod]
 
 # next.js
 /.next/
@@ -33,13 +35,14 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!.env.production.example
+/deploy/shared-postgres.env
 
 # local media and trained model binaries
 /storage/uploads/*
 /storage/generated/*
 !/storage/uploads/.gitkeep
 !/storage/generated/.gitkeep
-/backend/models/genre/*.onnx
 /backend/models/genre/*.ort
 
 # vercel

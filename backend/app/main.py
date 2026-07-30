@@ -1,26 +1,28 @@
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
-from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from sqlalchemy import select, text
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from app.api.dependencies import get_optional_current_user
 from app.api.routes import auth, music, songs, users
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
 from app.core.errors import AppError, app_error_handler
 from app.core.observability import RequestContextMiddleware, configure_logging, metrics_text
-from app.core.rate_limit import RateLimiter
+from app.core.rate_limit import get_rate_limiter
+from app.models import GeneratedTrack, PublishedWork, User
 from app.services.bootstrap import seed_master_data
 
 settings = get_settings()
 configure_logging(settings.log_level)
 logger = logging.getLogger("audio_analysis_system")
-rate_limiter = RateLimiter(settings)
+rate_limiter = get_rate_limiter()
 
 
 @asynccontextmanager
@@ -112,7 +114,34 @@ app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(songs.router, prefix=settings.api_prefix)
 app.include_router(music.router, prefix=settings.api_prefix)
-app.mount("/media/generated", StaticFiles(directory=settings.generated_dir, check_dir=False), name="generated")
+
+
+@app.get("/media/generated/{filename}", include_in_schema=False)
+def generated_media(
+    filename: str,
+    user: User | None = Depends(get_optional_current_user),
+) -> FileResponse:
+    if filename != Path(filename).name:
+        raise AppError(404, "MEDIA_NOT_FOUND", "音声ファイルが見つかりません。")
+    audio_url = f"/media/generated/{filename}"
+    with SessionLocal() as db:
+        track = db.scalar(
+            select(GeneratedTrack).where(GeneratedTrack.audio_url == audio_url)
+        )
+        if track is None:
+            raise AppError(404, "MEDIA_NOT_FOUND", "音声ファイルが見つかりません。")
+        is_public = db.scalar(
+            select(PublishedWork.id).where(
+                PublishedWork.generation_id == track.id,
+                PublishedWork.is_public.is_(True),
+            )
+        )
+        if not is_public and (user is None or track.user_id != user.id):
+            raise AppError(404, "MEDIA_NOT_FOUND", "音声ファイルが見つかりません。")
+    media_path = settings.generated_dir / filename
+    if not media_path.is_file():
+        raise AppError(404, "MEDIA_NOT_FOUND", "音声ファイルが見つかりません。")
+    return FileResponse(media_path, media_type="audio/wav")
 
 
 @app.get("/health")

@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends
 from sqlalchemy import desc, func, select
 from sqlalchemy.exc import IntegrityError
@@ -9,6 +7,7 @@ from app.api.dependencies import get_current_user, verify_csrf
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.errors import AppError
+from app.core.security import utc_now
 from app.models import GeneratedTrack, PublishedWork, PublishedWorkLike, User
 from app.schemas.api import (
     FounderProfile,
@@ -238,7 +237,7 @@ def like_work(
     work.likes_count = int(
         db.scalar(select(func.count()).select_from(PublishedWorkLike).where(PublishedWorkLike.work_id == work.id)) or 0
     )
-    work.updated_at = datetime.utcnow()
+    work.updated_at = utc_now()
     db.commit()
     db.refresh(work)
     return _work_response(work, user, track)

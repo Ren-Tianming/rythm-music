@@ -122,6 +122,13 @@ button:disabled { cursor: wait; opacity: .55; }
 .auth-notice { padding: 11px 13px; margin-bottom: 16px; border: 1px solid rgba(255,70,130,.28); border-radius: 10px; color: #fecdd3; background: rgba(255,45,110,.08); font-size: 13px; line-height: 1.5; }
 .auth-notice.success { border-color: rgba(89,242,177,.3); color: #b6f8da; background: rgba(35,180,116,.09); }
 .turnstile-slot { width: 100%; min-height: 65px; overflow: hidden; border-radius: 8px; }
+.auth-consent { display: flex; align-items: flex-start; gap: 9px; color: #8f8798; font-size: 11px; line-height: 1.55; }
+.auth-consent input { margin-top: 2px; accent-color: var(--pink); }
+.auth-consent a { color: #c9a8ff; text-decoration: none; }
+.auth-consent a:hover { text-decoration: underline; }
+.auth-links { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 15px; }
+.auth-links button { border: 0; padding: 0; color: #a991c5; background: transparent; cursor: pointer; font-size: 11px; }
+.auth-links button:hover { color: #fff; text-decoration: underline; }
 .privacy-note { margin: 28px 0 0; color: #756e88; font-size: 11px; line-height: 1.6; }
 .field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
 .field > span { color: #918999; font-size: 9px; font-weight: 700; letter-spacing: .06em; }

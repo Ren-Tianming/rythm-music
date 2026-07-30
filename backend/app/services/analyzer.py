@@ -1,3 +1,5 @@
+import shutil
+import subprocess  # nosec B404
 from pathlib import Path
 
 import librosa
@@ -17,8 +19,37 @@ from app.services.summary import create_music_summary
 settings = get_settings()
 
 
+def _probe_duration(path: Path) -> float | None:
+    ffprobe_binary = shutil.which("ffprobe")
+    if ffprobe_binary is None:
+        return None
+    try:
+        completed = subprocess.run(  # nosec B603
+            [
+                ffprobe_binary,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return float(completed.stdout.strip())
+    except (FileNotFoundError, subprocess.SubprocessError, ValueError):
+        return None
+
+
 def analyze_audio(path: Path) -> dict[str, object]:
     """音源を一度だけロードして解析結果と可視化用データを生成する。"""
+    probed_duration = _probe_duration(path)
+    if probed_duration is not None and probed_duration > settings.max_audio_duration_sec:
+        raise AppError(413, "AUDIO_TOO_LONG", "音源の長さが上限を超えています。")
     try:
         raw, sr = librosa.load(path, sr=None, mono=False)
     except Exception as exc:

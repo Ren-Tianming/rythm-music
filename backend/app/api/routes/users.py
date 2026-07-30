@@ -25,6 +25,8 @@ def update_profile(
     db: Session = Depends(get_db),
 ) -> User:
     user.username = payload.username
+    if payload.locale is not None:
+        user.locale = payload.locale
     db.commit()
     db.refresh(user)
     return user

@@ -3,12 +3,14 @@ from app.models.entities import (
     AnalysisJob,
     ApiKey,
     ApiUsageLog,
+    AuditLog,
     AuthSession,
     Coupon,
     CouponRedemption,
     DailyLoginReward,
     EmailVerificationToken,
     GeneratedTrack,
+    PasswordResetToken,
     PaymentOrder,
     Plan,
     PointPackage,
@@ -20,6 +22,7 @@ from app.models.entities import (
     SystemSetting,
     UploadedFile,
     User,
+    UserConsent,
 )
 
 __all__ = [
@@ -27,6 +30,7 @@ __all__ = [
     "AnalysisJob",
     "ApiKey",
     "ApiUsageLog",
+    "AuditLog",
     "AuthSession",
     "Coupon",
     "CouponRedemption",
@@ -34,6 +38,7 @@ __all__ = [
     "EmailVerificationToken",
     "GeneratedTrack",
     "PaymentOrder",
+    "PasswordResetToken",
     "Plan",
     "PointPackage",
     "PointTransaction",
@@ -44,4 +49,5 @@ __all__ = [
     "SystemSetting",
     "UploadedFile",
     "User",
+    "UserConsent",
 ]

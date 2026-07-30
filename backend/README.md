@@ -21,7 +21,9 @@ backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --reload
 
 | Area | Endpoint |
 | --- | --- |
-| Cookie authentication | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh` |
+| Cookie authentication | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout` |
+| Recovery and verification | `POST /api/v1/auth/verify-email`, `POST /api/v1/auth/forgot-password`, `POST /api/v1/auth/reset-password` |
+| Device sessions | `GET /api/v1/auth/sessions`, `DELETE /api/v1/auth/sessions/{id}` |
 | Analysis | `POST /api/v1/songs/analyze`, `GET /api/v1/songs/history` |
 | Generation | `POST /api/v1/music/generations`, `GET /api/v1/music/generations` |
 | Publishing | `POST /api/v1/music/works`, `GET /api/v1/music/works` |

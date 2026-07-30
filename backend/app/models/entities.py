@@ -41,6 +41,7 @@ class User(TimestampMixin, Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     username: Mapped[str] = mapped_column(String(100), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    locale: Mapped[str] = mapped_column(String(10), default="zh-CN", nullable=False)
     role: Mapped[str] = mapped_column(String(20), default="USER", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="ACTIVE", nullable=False)
     points_balance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -54,6 +55,11 @@ class User(TimestampMixin, Base):
     email_verification_tokens: Mapped[list["EmailVerificationToken"]] = relationship(
         cascade="all, delete-orphan"
     )
+    password_reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(
+        cascade="all, delete-orphan"
+    )
+    consents: Mapped[list["UserConsent"]] = relationship(cascade="all, delete-orphan")
+    audit_logs: Mapped[list["AuditLog"]] = relationship()
     generations: Mapped[list["GeneratedTrack"]] = relationship(back_populates="user")
     published_works: Mapped[list["PublishedWork"]] = relationship(back_populates="user")
     work_likes: Mapped[list["PublishedWorkLike"]] = relationship(back_populates="user")
@@ -89,6 +95,60 @@ class EmailVerificationToken(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (
+        Index("ix_password_reset_user_expires", "user_id", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
+class UserConsent(Base):
+    __tablename__ = "user_consents"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "document_type",
+            "document_version",
+            name="uq_user_consents_document_version",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(SQLITE_COMPATIBLE_ID, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    document_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    document_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    consented_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    __table_args__ = (Index("ix_audit_logs_event_created", "event_type", "created_at"),)
+
+    id: Mapped[int] = mapped_column(SQLITE_COMPATIBLE_ID, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    result: Mapped[str] = mapped_column(String(20), default="success", nullable=False)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    metadata_redacted: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 

@@ -1,4 +1,3 @@
-from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
@@ -15,9 +14,10 @@ from app.api.dependencies import (
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.errors import AppError
-from app.core.security import hash_api_key
+from app.core.security import hash_api_key, utc_now
 from app.models import AnalysisJob, ApiKey, ApiUsageLog, SongAnalysis, UploadedFile, User
 from app.schemas.api import HistoryList, Message, SongAnalysisResponse
+from app.services.analysis_queue import get_analysis_queue
 from app.services.analyzer import analyze_audio
 from app.services.points import apply_points
 from app.services.report import create_analysis_report
@@ -25,6 +25,7 @@ from app.services.storage import persist_upload
 
 settings = get_settings()
 router = APIRouter(prefix="/songs", tags=["音源解析"])
+analysis_queue = get_analysis_queue()
 
 
 def owned_analysis(db: Session, user_id: int, analysis_id: int) -> SongAnalysis:
@@ -55,7 +56,7 @@ def record_api_usage(db: Session, api_key_value: str | None, status_code: int, p
         return
     key = db.scalar(select(ApiKey).where(ApiKey.key_hash == hash_api_key(api_key_value)))
     if key:
-        key.last_used_at = datetime.utcnow()
+        key.last_used_at = utc_now()
         db.add(
             ApiUsageLog(
                 api_key_id=key.id,
@@ -92,16 +93,23 @@ def analyze(
         file_hash=stored.digest,
         file_format=stored.file_format,
         file_size=stored.file_size,
-        status="PROCESSING",
+        status="QUEUED",
     )
     db.add(analysis)
     db.flush()
-    job = AnalysisJob(analysis_id=analysis.id, status="PROCESSING", started_at=datetime.utcnow())
+    job = AnalysisJob(analysis_id=analysis.id, status="QUEUED")
     db.add(job)
     db.commit()
     analysis_id = analysis.id
     try:
-        result = analyze_audio(stored.path)
+        with analysis_queue.acquire():
+            analysis = must_get_analysis(db, analysis_id)
+            analysis.status = "PROCESSING"
+            job = must_get_job(db, analysis_id)
+            job.status = "PROCESSING"
+            job.started_at = utc_now()
+            db.commit()
+            result = analyze_audio(stored.path)
         analysis = must_get_analysis(db, analysis_id)
         for key, value in result.items():
             setattr(analysis, key, value)
@@ -119,7 +127,7 @@ def analyze(
         analysis.status = "SUCCESS"
         job = must_get_job(db, analysis_id)
         job.status = "SUCCESS"
-        job.finished_at = datetime.utcnow()
+        job.finished_at = utc_now()
         record_api_usage(db, api_key_value, 201, settings.analysis_points_cost)
         db.commit()
         db.refresh(analysis)
@@ -132,7 +140,7 @@ def analyze(
         failed_job = must_get_job(db, analysis_id)
         failed_job.status = "FAILED"
         failed_job.error_message = exc.message
-        failed_job.finished_at = datetime.utcnow()
+        failed_job.finished_at = utc_now()
         record_api_usage(db, api_key_value, exc.status_code, 0)
         db.commit()
         raise
@@ -144,7 +152,7 @@ def analyze(
         failed_job = must_get_job(db, analysis_id)
         failed_job.status = "FAILED"
         failed_job.error_message = failed.error_message
-        failed_job.finished_at = datetime.utcnow()
+        failed_job.finished_at = utc_now()
         record_api_usage(db, api_key_value, 422, 0)
         db.commit()
         raise AppError(422, "AUDIO_ANALYSIS_FAILED", failed.error_message or "解析処理に失敗しました。") from exc
@@ -153,7 +161,7 @@ def analyze(
         retained = db.get(UploadedFile, uploaded.id)
         if retained:
             retained.storage_path = None
-            retained.deleted_at = datetime.utcnow()
+            retained.deleted_at = utc_now()
             db.commit()
 
 

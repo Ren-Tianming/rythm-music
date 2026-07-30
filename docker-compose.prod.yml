@@ -1,60 +1,173 @@
+name: rythm-music
+
+x-logging: &default_logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
+  preflight:
+    image: alpine:3.22
+    mem_limit: 16m
+    cpus: 0.05
+    pids_limit: 20
+    network_mode: none
+    environment:
+      APP_SECRET: ${APP_SECRET:?Set APP_SECRET}
+      POSTGRES_ADMIN_USER: ${POSTGRES_ADMIN_USER:?Set POSTGRES_ADMIN_USER}
+      POSTGRES_ADMIN_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD}
+      MUSIC_POSTGRES_DB: ${MUSIC_POSTGRES_DB:-rythm_music}
+      MUSIC_POSTGRES_USER: ${MUSIC_POSTGRES_USER:-rythm_music}
+      MUSIC_POSTGRES_PASSWORD: ${MUSIC_POSTGRES_PASSWORD:?Set MUSIC_POSTGRES_PASSWORD}
+      CHATBOT_POSTGRES_DB: ${CHATBOT_POSTGRES_DB:-rythm_chatbot}
+      CHATBOT_POSTGRES_USER: ${CHATBOT_POSTGRES_USER:-rythm_chatbot}
+      CHATBOT_POSTGRES_PASSWORD: ${CHATBOT_POSTGRES_PASSWORD:?Set CHATBOT_POSTGRES_PASSWORD}
+      VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:?Set VITE_TURNSTILE_SITE_KEY}
+      AUDIO_TURNSTILE_SECRET_KEY: ${AUDIO_TURNSTILE_SECRET_KEY:?Set AUDIO_TURNSTILE_SECRET_KEY}
+      AUDIO_SMTP_HOST: ${AUDIO_SMTP_HOST:?Set AUDIO_SMTP_HOST}
+      AUDIO_SMTP_USERNAME: ${AUDIO_SMTP_USERNAME:?Set AUDIO_SMTP_USERNAME}
+      AUDIO_SMTP_PASSWORD: ${AUDIO_SMTP_PASSWORD:?Set AUDIO_SMTP_PASSWORD}
+      AUDIO_SMTP_FROM_EMAIL: ${AUDIO_SMTP_FROM_EMAIL:?Set AUDIO_SMTP_FROM_EMAIL}
+      AUDIO_TERMS_VERSION: ${AUDIO_TERMS_VERSION:-2026-07-30}
+      MUSIC_PORT: ${MUSIC_PORT:-8080}
+      CHATBOT_PORT: ${CHATBOT_PORT:-8081}
+    volumes:
+      - ./deploy/preflight.sh:/preflight.sh:ro
+    command: ["/bin/sh", "/preflight.sh"]
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    logging: *default_logging
+
   postgres:
     image: postgres:17-alpine
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      TZ: Asia/Tokyo
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - data_internal
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
     restart: unless-stopped
+    mem_limit: 320m
+    cpus: 0.40
+    pids_limit: 100
+    shm_size: 96m
+    command:
+      - postgres
+      - -c
+      - max_connections=30
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - effective_cache_size=192MB
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=32MB
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:?Set POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD}
+      MUSIC_POSTGRES_DB: ${MUSIC_POSTGRES_DB:-rythm_music}
+      MUSIC_POSTGRES_USER: ${MUSIC_POSTGRES_USER:-rythm_music}
+      MUSIC_POSTGRES_PASSWORD: ${MUSIC_POSTGRES_PASSWORD:?Set MUSIC_POSTGRES_PASSWORD}
+      CHATBOT_POSTGRES_DB: ${CHATBOT_POSTGRES_DB:-rythm_chatbot}
+      CHATBOT_POSTGRES_USER: ${CHATBOT_POSTGRES_USER:-rythm_chatbot}
+      CHATBOT_POSTGRES_PASSWORD: ${CHATBOT_POSTGRES_PASSWORD:?Set CHATBOT_POSTGRES_PASSWORD}
+      TZ: Asia/Tokyo
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
+    volumes:
+      - shared_postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/01-create-app-databases.sh:/docker-entrypoint-initdb.d/01-create-app-databases.sh:ro
+    networks:
+      shared_database:
+        aliases:
+          - rythm-postgres
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_ADMIN_USER} -d postgres",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+    logging: *default_logging
 
   redis:
     image: redis:7.4-alpine
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: 0.15
+    pids_limit: 50
+    command:
+      - redis-server
+      - --appendonly
+      - "no"
+      - --save
+      - ""
+      - --maxmemory
+      - 48mb
+      - --maxmemory-policy
+      - allkeys-lru
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
     networks:
-      - data_internal
+      - music_internal
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
-    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging: *default_logging
 
   migrations:
     build: ./backend
+    mem_limit: 256m
+    cpus: 0.25
+    pids_limit: 100
     environment: &backend_environment
+      AUDIO_APP_NAME: RyThM Music
       AUDIO_ENVIRONMENT: production
-      AUDIO_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      APP_SECRET: ${APP_SECRET:?Set APP_SECRET}
+      AUDIO_DATABASE_URL: postgresql+psycopg://${MUSIC_POSTGRES_USER}:${MUSIC_POSTGRES_PASSWORD}@rythm-postgres:5432/${MUSIC_POSTGRES_DB}
+      AUDIO_DATABASE_POOL_SIZE: "3"
+      AUDIO_DATABASE_MAX_OVERFLOW: "2"
       AUDIO_REDIS_URL: redis://redis:6379/0
-      AUDIO_FRONTEND_URL: ${AUDIO_FRONTEND_URL}
+      AUDIO_FRONTEND_URL: https://www.rythmmusic.site
+      AUDIO_SESSION_COOKIE_NAME: __Host-rythm_session
+      AUDIO_CSRF_COOKIE_NAME: __Host-rythm_csrf
       AUDIO_COOKIE_SECURE: "true"
       AUDIO_COOKIE_SAMESITE: strict
-      AUDIO_CORS_ORIGINS: ${AUDIO_CORS_ORIGINS}
-      AUDIO_ALLOWED_HOSTS: ${AUDIO_ALLOWED_HOSTS}
+      AUDIO_CORS_ORIGINS: https://www.rythmmusic.site
+      AUDIO_CSRF_TRUSTED_ORIGINS: https://www.rythmmusic.site
+      AUDIO_ALLOWED_HOSTS: www.rythmmusic.site,backend,localhost,127.0.0.1
       AUDIO_SESSION_IDLE_HOURS: "24"
       AUDIO_SESSION_ABSOLUTE_DAYS: "14"
+      AUDIO_PASSWORD_RESET_EXPIRE_MINUTES: "30"
+      AUDIO_TERMS_VERSION: ${AUDIO_TERMS_VERSION:-2026-07-30}
       AUDIO_TURNSTILE_REQUIRED: "true"
-      AUDIO_TURNSTILE_SECRET_KEY: ${AUDIO_TURNSTILE_SECRET_KEY}
-      AUDIO_TURNSTILE_EXPECTED_HOSTNAMES: ${AUDIO_TURNSTILE_EXPECTED_HOSTNAMES}
-      AUDIO_SMTP_HOST: ${AUDIO_SMTP_HOST}
+      AUDIO_TURNSTILE_SECRET_KEY: ${AUDIO_TURNSTILE_SECRET_KEY:?Set AUDIO_TURNSTILE_SECRET_KEY}
+      AUDIO_TURNSTILE_EXPECTED_HOSTNAMES: www.rythmmusic.site
+      AUDIO_SMTP_HOST: ${AUDIO_SMTP_HOST:?Set AUDIO_SMTP_HOST}
       AUDIO_SMTP_PORT: ${AUDIO_SMTP_PORT:-587}
-      AUDIO_SMTP_USERNAME: ${AUDIO_SMTP_USERNAME}
-      AUDIO_SMTP_PASSWORD: ${AUDIO_SMTP_PASSWORD}
-      AUDIO_SMTP_FROM_EMAIL: ${AUDIO_SMTP_FROM_EMAIL}
+      AUDIO_SMTP_USERNAME: ${AUDIO_SMTP_USERNAME:?Set AUDIO_SMTP_USERNAME}
+      AUDIO_SMTP_PASSWORD: ${AUDIO_SMTP_PASSWORD:?Set AUDIO_SMTP_PASSWORD}
+      AUDIO_SMTP_FROM_EMAIL: ${AUDIO_SMTP_FROM_EMAIL:?Set AUDIO_SMTP_FROM_EMAIL}
       AUDIO_SMTP_USE_TLS: "true"
       AUDIO_UPLOAD_DIR: /app/storage/uploads
       AUDIO_GENERATED_DIR: /app/storage/generated
+      AUDIO_MAX_AUDIO_DURATION_SEC: ${AUDIO_MAX_AUDIO_DURATION_SEC:-300}
+      AUDIO_ANALYSIS_MAX_CONCURRENCY: "1"
+      AUDIO_ANALYSIS_QUEUE_MAX_SIZE: ${AUDIO_ANALYSIS_QUEUE_MAX_SIZE:-8}
+      AUDIO_ANALYSIS_QUEUE_WAIT_SECONDS: ${AUDIO_ANALYSIS_QUEUE_WAIT_SECONDS:-900}
+      AUDIO_REGISTRATION_RATE_LIMIT_PER_HOUR: ${AUDIO_REGISTRATION_RATE_LIMIT_PER_HOUR:-5}
+      AUDIO_LOGIN_RATE_LIMIT_PER_TEN_MINUTES: ${AUDIO_LOGIN_RATE_LIMIT_PER_TEN_MINUTES:-5}
+      AUDIO_VERIFICATION_RATE_LIMIT_PER_HOUR: ${AUDIO_VERIFICATION_RATE_LIMIT_PER_HOUR:-10}
+      AUDIO_EMAIL_ACTION_RATE_LIMIT_PER_HOUR: ${AUDIO_EMAIL_ACTION_RATE_LIMIT_PER_HOUR:-3}
+      AUDIO_EMAIL_ACTION_IP_RATE_LIMIT_PER_HOUR: ${AUDIO_EMAIL_ACTION_IP_RATE_LIMIT_PER_HOUR:-10}
       AUDIO_GENRE_MODEL_PATH: /app/models/genre/genre-model.onnx
       AUDIO_GENRE_MODEL_METADATA_PATH: /app/models/genre/genre-model.metadata.json
       AUDIO_MUSIC_PROVIDER: ${AUDIO_MUSIC_PROVIDER:-demo}
@@ -72,10 +185,17 @@ services:
     command: alembic -c alembic.ini upgrade head
     restart: "no"
     networks:
-      - data_internal
+      - shared_database
+    security_opt:
+      - no-new-privileges:true
+    logging: *default_logging
 
   backend:
     build: ./backend
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.00
+    pids_limit: 160
     environment: *backend_environment
     volumes:
       - uploads:/app/storage/uploads
@@ -85,43 +205,70 @@ services:
         condition: service_healthy
       migrations:
         condition: service_completed_successfully
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips=*
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "1"
+      - --proxy-headers
+      - --forwarded-allow-ips=*
     networks:
-      - data_internal
-      - web
+      - shared_database
+      - music_internal
+      - music_web
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import os, urllib.request; request = urllib.request.Request('http://127.0.0.1:8000/ready', headers={'Host': os.environ['AUDIO_ALLOWED_HOSTS'].split(',')[0]}); urllib.request.urlopen(request, timeout=2)\""]
-      interval: 10s
-      timeout: 3s
-      retries: 12
-    restart: unless-stopped
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/ready',headers={'Host':'www.rythmmusic.site'}); urllib.request.urlopen(r,timeout=3)\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+    logging: *default_logging
 
   frontend:
     build:
       context: ./frontend
       args:
-        VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:?VITE_TURNSTILE_SITE_KEY is required}
+        VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:?Set VITE_TURNSTILE_SITE_KEY}
+        VITE_TERMS_VERSION: ${AUDIO_TERMS_VERSION:-2026-07-30}
+        VITE_CSRF_COOKIE_NAME: __Host-rythm_csrf
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: 0.15
+    pids_limit: 50
     ports:
-      - "80:80"
-    networks:
-      - web
+      - "127.0.0.1:${MUSIC_PORT:-8080}:80"
     depends_on:
       backend:
         condition: service_healthy
+    networks:
+      - music_web
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null"]
-      interval: 10s
-      timeout: 3s
-      retries: 12
-    restart: unless-stopped
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+    logging: *default_logging
 
 volumes:
-  postgres_data:
-  redis_data:
+  shared_postgres_data:
   uploads:
   generated:
 
 networks:
-  data_internal:
+  shared_database:
+    name: rythm-shared-db
     internal: true
-  web:
+  music_internal:
+    internal: true
+  music_web:

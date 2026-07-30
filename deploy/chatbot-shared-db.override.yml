@@ -1,0 +1,26 @@
+services:
+  db:
+    profiles:
+      - standalone-database
+
+  backend:
+    mem_limit: 384m
+    cpus: 0.55
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${CHATBOT_POSTGRES_USER}:${CHATBOT_POSTGRES_PASSWORD}@rythm-postgres:5432/${CHATBOT_POSTGRES_DB}
+      WEB_CONCURRENCY: "1"
+    depends_on: !reset {}
+    networks: !override
+      - internal
+      - shared_database
+
+  web:
+    mem_limit: 64m
+    cpus: 0.15
+    ports: !override
+      - "127.0.0.1:${CHATBOT_PORT:-8081}:80"
+
+networks:
+  shared_database:
+    external: true
+    name: rythm-shared-db

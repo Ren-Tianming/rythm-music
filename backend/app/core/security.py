@@ -1,5 +1,8 @@
 import hashlib
+import hmac
+import ipaddress
 import secrets
+import unicodedata
 from datetime import UTC, datetime
 
 import bcrypt
@@ -43,8 +46,12 @@ def new_token(length: int = 48) -> str:
     return secrets.token_urlsafe(length)
 
 
-def token_digest(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+def token_digest(token: str, secret: str) -> str:
+    return hmac.new(
+        secret.encode("utf-8"),
+        token.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def generate_api_key() -> tuple[str, str, str]:
@@ -55,3 +62,43 @@ def generate_api_key() -> tuple[str, str, str]:
 
 def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+
+COMMON_PASSWORDS = {
+    "123456789012",
+    "admin12345678",
+    "letmein123456",
+    "password1234",
+    "qwerty123456",
+}
+
+
+def validate_password_strength(password: str) -> str:
+    if password.casefold() in COMMON_PASSWORDS:
+        raise ValueError("Password is too common")
+    if any(unicodedata.category(character).startswith("C") for character in password):
+        raise ValueError("Password contains unsupported control characters")
+    return password
+
+
+def validate_display_name(value: str) -> str:
+    normalized = value.strip()
+    if not 1 <= len(normalized) <= 50:
+        raise ValueError("Display name must contain 1 to 50 characters")
+    if any(unicodedata.category(character).startswith("C") for character in normalized):
+        raise ValueError("Display name contains unsupported control characters")
+    return normalized
+
+
+def mask_ip_address(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return None
+    if isinstance(address, ipaddress.IPv4Address):
+        octets = value.split(".")
+        return ".".join([*octets[:3], "*"])
+    network = ipaddress.IPv6Network((address, 64), strict=False)
+    return f"{network.network_address.compressed}/64"

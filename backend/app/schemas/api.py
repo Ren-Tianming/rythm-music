@@ -1,7 +1,11 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+from app.core.security import validate_display_name, validate_password_strength
+
+SUPPORTED_LOCALES = {"zh-CN", "ja-JP", "en-US"}
 
 
 class ORMModel(BaseModel):
@@ -14,10 +18,38 @@ class Message(BaseModel):
 
 class UserCreate(BaseModel):
     email: EmailStr
-    username: str = Field(min_length=2, max_length=100)
+    username: str = Field(min_length=1, max_length=50)
     password: str = Field(min_length=12, max_length=128)
     password_confirmation: str = Field(min_length=12, max_length=128)
+    locale: str = "zh-CN"
+    terms_version: str = Field(min_length=1, max_length=40)
+    terms_accepted: bool
     turnstile_token: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("username")
+    @classmethod
+    def valid_username(cls, value: str) -> str:
+        return validate_display_name(value)
+
+    @field_validator("password")
+    @classmethod
+    def strong_password(cls, value: str) -> str:
+        return validate_password_strength(value)
+
+    @field_validator("locale")
+    @classmethod
+    def valid_locale(cls, value: str) -> str:
+        if value not in SUPPORTED_LOCALES:
+            raise ValueError("Unsupported locale")
+        return value
+
+    @model_validator(mode="after")
+    def consent_and_passwords_match(self) -> "UserCreate":
+        if self.password != self.password_confirmation:
+            raise ValueError("Passwords do not match")
+        if not self.terms_accepted:
+            raise ValueError("Terms must be accepted")
+        return self
 
 
 class LoginRequest(BaseModel):
@@ -30,19 +62,67 @@ class VerifyEmailRequest(BaseModel):
     token: str = Field(min_length=20, max_length=300)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+    turnstile_token: str | None = Field(default=None, max_length=2048)
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=300)
+    password: str = Field(min_length=12, max_length=128)
+    password_confirmation: str = Field(min_length=12, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def strong_password(cls, value: str) -> str:
+        return validate_password_strength(value)
+
+    @model_validator(mode="after")
+    def passwords_match(self) -> "ResetPasswordRequest":
+        if self.password != self.password_confirmation:
+            raise ValueError("Passwords do not match")
+        return self
+
+
 class PasswordChange(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=12, max_length=128)
+    new_password_confirmation: str = Field(min_length=12, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def strong_password(cls, value: str) -> str:
+        return validate_password_strength(value)
+
+    @model_validator(mode="after")
+    def passwords_match(self) -> "PasswordChange":
+        if self.new_password != self.new_password_confirmation:
+            raise ValueError("Passwords do not match")
+        return self
 
 
 class ProfileUpdate(BaseModel):
-    username: str = Field(min_length=2, max_length=100)
+    username: str = Field(min_length=1, max_length=50)
+    locale: str | None = None
+
+    @field_validator("username")
+    @classmethod
+    def valid_username(cls, value: str) -> str:
+        return validate_display_name(value)
+
+    @field_validator("locale")
+    @classmethod
+    def valid_locale(cls, value: str | None) -> str | None:
+        if value is not None and value not in SUPPORTED_LOCALES:
+            raise ValueError("Unsupported locale")
+        return value
 
 
 class UserResponse(ORMModel):
     id: int
     email: str
     username: str
+    locale: str
     role: str
     status: str
     points_balance: int

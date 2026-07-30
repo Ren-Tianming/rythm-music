@@ -1,6 +1,7 @@
 import hmac
 from dataclasses import dataclass
 from datetime import timedelta
+from urllib.parse import urlparse
 
 from fastapi import Depends, Header, Request
 from sqlalchemy import delete, select
@@ -33,7 +34,7 @@ def _load_current_auth(request: Request, db: Session) -> CurrentAuth:
     now = utc_now()
     model = db.scalar(
         select(AuthSession).where(
-            AuthSession.token_hash == token_digest(plain_token)
+            AuthSession.token_hash == token_digest(plain_token, settings.app_secret)
         )
     )
     if model is None:
@@ -72,6 +73,18 @@ def get_current_user(
     db: Session = Depends(get_db),
 ) -> User:
     return _load_current_auth(request, db).user
+
+
+def get_optional_current_user(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> User | None:
+    if not request.cookies.get(settings.session_cookie_name):
+        return None
+    try:
+        return _load_current_auth(request, db).user
+    except AppError:
+        return None
 
 
 def get_admin_user(user: User = Depends(get_current_user)) -> User:
@@ -113,9 +126,29 @@ def verify_csrf(
         not csrf_cookie
         or not csrf_header
         or not hmac.compare_digest(csrf_cookie, csrf_header)
-        or not hmac.compare_digest(token_digest(csrf_header), auth.session.csrf_hash)
+        or not hmac.compare_digest(
+            token_digest(csrf_header, settings.app_secret),
+            auth.session.csrf_hash,
+        )
     ):
         raise AppError(403, "CSRF_VALIDATION_FAILED", "CSRF 検証に失敗しました。")
+
+    source = request.headers.get("origin") or request.headers.get("referer")
+    if source:
+        parsed = urlparse(source)
+        source_origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+        if source_origin not in settings.allowed_csrf_origins:
+            raise AppError(
+                403,
+                "CSRF_ORIGIN_INVALID",
+                "リクエスト元を確認できませんでした。",
+            )
+    elif settings.environment == "production":
+        raise AppError(
+            403,
+            "CSRF_ORIGIN_REQUIRED",
+            "リクエスト元の情報が必要です。",
+        )
 
 
 def verify_csrf_or_api_key(
