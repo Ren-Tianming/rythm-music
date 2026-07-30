@@ -19,7 +19,7 @@ Internet
    |
 Host Nginx :80/:443
    |-- www.rythmmusic.site  -> 127.0.0.1:8080 -> Music frontend -> Music backend
-   `-- chat.rhythmusic.site -> 127.0.0.1:8081 -> Chatbot web    -> Chatbot backend
+   `-- aichat.rythmmusic.site -> 127.0.0.1:8081 -> Chatbot web  -> Chatbot backend
 
 Docker internal networks
    |-- Music Redis（不发布端口）
@@ -74,28 +74,27 @@ EC2 上另行挂载，也不能从部署包忽略。
 将以下 DNS A/AAAA 记录指向同一个 EC2 Elastic IP：
 
 - `www.rythmmusic.site`
-- `chat.rhythmusic.site`（当前 Chatbot 使用的域名）
+- `aichat.rythmmusic.site`（Chatbot）
 
 首次签发证书时，可以暂时停止 Nginx 后使用 Certbot standalone：
 
 ```bash
 sudo systemctl stop nginx
 sudo certbot certonly --standalone -d www.rythmmusic.site
-sudo certbot certonly --standalone -d chat.rhythmusic.site
+sudo certbot certonly --standalone -d aichat.rythmmusic.site
 ```
 
-复制两个虚拟主机。Music 配置在本仓库；Chatbot 配置继续使用 Chatbot 仓库中的
-文件。
+复制本仓库中的两个虚拟主机配置。
 
 ```bash
 sudo cp /opt/rythm-music/deploy/nginx/www.rythmmusic.site.conf \
   /etc/nginx/sites-available/www.rythmmusic.site.conf
-sudo cp /opt/rythm-chatbot/deploy/nginx/chat.rhythmusic.site.conf \
-  /etc/nginx/sites-available/chat.rhythmusic.site.conf
+sudo cp /opt/rythm-music/deploy/nginx/aichat.rythmmusic.site.conf \
+  /etc/nginx/sites-available/aichat.rythmmusic.site.conf
 sudo ln -s /etc/nginx/sites-available/www.rythmmusic.site.conf \
   /etc/nginx/sites-enabled/www.rythmmusic.site.conf
-sudo ln -s /etc/nginx/sites-available/chat.rhythmusic.site.conf \
-  /etc/nginx/sites-enabled/chat.rhythmusic.site.conf
+sudo ln -s /etc/nginx/sites-available/aichat.rythmmusic.site.conf \
+  /etc/nginx/sites-enabled/aichat.rythmmusic.site.conf
 sudo nginx -t
 sudo systemctl enable --now nginx
 ```
