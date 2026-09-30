@@ -137,6 +137,26 @@ AUDIO_LYRICS_MODEL=whisper-1
 
 ## 验证 / 検証
 
+GitHub Actions 的 `.github/workflows/ci.yml` 在 PR、推送到 `main` 或手动触发时，
+分别执行 backend / frontend 两个独立 job。使用与 Dockerfile 一致的 Python 3.11
+和 Node 22；后端安装 `backend/requirements-dev.txt`（包含运行依赖），前端使用
+`npm ci` 严格按现有 lockfile 安装，包括类型检查所需的开发依赖。
+
+GitHub Actions は PR・`main` への push・手動実行で backend / frontend を独立して
+検証します。Dockerfile と同じ Python 3.11 / Node 22 を使い、後端は既存の開発用
+requirements、前端は lockfile から依存関係をインストールします。
+
+CI 仅使用 `contents: read`，不需要 secrets；测试沿用 SQLite 与测试用配置，
+不启动 PostgreSQL / Redis。pip / npm 下载缓存按依赖文件更新，缓存不替代安装。
+以下任一检查失败都会使对应 job 失败；`npm audit --omit=dev` 不审计仅开发依赖，
+前端 `lint` 当前仅执行 TypeScript 类型检查。Python 的间接依赖尚未完全锁定，
+且安全数据库会更新，因此相同代码的审计结果也可能变化。
+
+CI に secrets は不要です。テストは SQLite とテスト用設定を使用し、各チェックの
+失敗は job の失敗になります。前端の `lint` は型チェックのみ、npm 監査は本番依存のみ
+が対象です。Python の間接依存と脆弱性データベースの更新により結果は変化し得ます。
+この最小 CI は本番 PostgreSQL / Redis、ARM64、Docker デプロイの動作検証を含みません。
+
 ```bash
 backend/.venv/bin/python -m pytest -q
 backend/.venv/bin/python -m ruff check backend
